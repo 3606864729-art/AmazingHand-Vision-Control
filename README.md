@@ -97,7 +97,15 @@ python .\src\hand_tracking_control.py
 
 ## 演示视频
 
-[视觉识别与手势映射演示](docs/demo/vision_gesture_mapping.mp4)：同步展示 MediaPipe 手部关键点、摄像头手势和 MuJoCo 机械手响应。
+### 最终视觉控制演示
+
+[![AmazingHand 最终视觉控制演示](docs/demo/final_hand_tracking_preview.gif)](docs/demo/final_hand_tracking_demo.mp4)
+
+视频同步展示电脑上的 MediaPipe 识别画面与实体 AmazingHand 的动作响应。点击 GIF 可观看[完整 MP4 视频](docs/demo/final_hand_tracking_demo.mp4)。
+
+### 视觉识别与仿真映射
+
+[观看视觉识别与仿真手势映射演示](docs/demo/vision_gesture_mapping.mp4)：同步展示 MediaPipe 手部关键点、摄像头手势和 MuJoCo 机械手响应。
 
 ## 安全提示
 
