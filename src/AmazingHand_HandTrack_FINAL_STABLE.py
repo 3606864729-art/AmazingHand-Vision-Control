@@ -1,5 +1,5 @@
-# AmazingHand_HandTrack_PER_FINGER_SPLAY_TRIM_FIXED.py
-# AmazingHand hand tracking：左右摆动标定增强版（已合并你的 TUNED_THUMB_FIX 参数，并加入闭合锁定/防误张开/单指独立 splay 衰减/手指左右偏置微调逻辑）
+# AmazingHand_HandTrack_FINAL_STABLE.py
+# AmazingHand hand tracking：左右摆动标定增强版（已合并你的 TUNED_THUMB_FIX 参数，并加入半弯曲友好曲线、单指 splay 衰减、左右偏置微调、开手限速防误展开）
 #
 # 核心改进：
 # 1. 四指左右摆动不再用 fingertip - MCP，而是用 MCP -> PIP 的近节指骨方向，减少屈伸污染。
@@ -8,7 +8,7 @@
 # 4. 终端持续输出 raw_splay / cmd_splay，便于判断到底是识别问题还是舵机映射问题。
 #
 # 运行：
-#   python src/amazinghand_handtrack_per_finger_trim.py
+#   python src/AmazingHand_HandTrack_FINAL_STABLE.py
 #
 # 操作：
 #   n     标定当前手势为左右摆动中立位
@@ -61,7 +61,7 @@ SPLAY_SIGN    = [-1, -1, -1,  -1]   # 某根方向反了，就把对应值改成
 # 顺序：index, middle, ring, thumb
 # 你现在的问题是中指偏向食指，所以先给 middle 一个 +8° 偏置。
 # 如果更偏，就改成 [0, -8, 0, 0]。
-SPLAY_TRIM_DEG = [0, -8, 0, 0]
+SPLAY_TRIM_DEG = [0, 10, 0, 0]
 
 # 安全限位
 ANGLE_LIMITS_DEG = [
@@ -73,22 +73,28 @@ ANGLE_LIMITS_DEG = [
 
 CAMERA_INDEX = int(os.getenv("AMAZINGHAND_CAMERA_INDEX", "0"))
 
-CONTROL_HZ = 16
-SMOOTHING_ALPHA = 0.35
+CONTROL_HZ = 14
+SMOOTHING_ALPHA = 0.25
 
 SPEED = 4
 COMMAND_GAP = 0.006
 
+# 半弯曲友好参数说明：
+# - CURL_FULL 提高到 0.82：需要更明显弯曲才会满闭合；
+# - CURL_GAMMA 改到 1.10：曲线更线性，半弯曲更容易停住；
+# - CURL_LOCK_ON 提高到 0.82：避免半弯曲时过早锁死；
+# - SMOOTHING_ALPHA 降到 0.25：减少跳变。
+
 # 弯曲灵敏度
-CURL_START = 0.08
-CURL_FULL = 0.75
-CURL_GAMMA = 0.75
+CURL_START = 0.12
+CURL_FULL = 0.82
+CURL_GAMMA = 1.10
 
 # 拇指弯曲单独放大
-THUMB_CURL_START = 0.00
-THUMB_CURL_FULL = 0.52
-THUMB_CURL_GAMMA = 0.45
-THUMB_CLOSE_GAIN = 1.20
+THUMB_CURL_START = 0.03
+THUMB_CURL_FULL = 0.68
+THUMB_CURL_GAMMA = 0.85
+THUMB_CLOSE_GAIN = 1.10
 
 OPEN_JOINT_ANGLE = 165.0
 CLOSE_JOINT_ANGLE = 105.0
@@ -101,21 +107,31 @@ HOLD_WHEN_NO_HAND = True
 # 2. 之后即使 MediaPipe 因遮挡导致 curl 短暂变小，也保持至少 CURL_LOCK_MIN 的闭合；
 # 3. 只有连续多帧低于 CURL_LOCK_OFF，才解除锁定。
 CURL_LOCK_ENABLE = True
-CURL_LOCK_ON = 0.68
-CURL_LOCK_OFF = 0.22
-CURL_LOCK_MIN = 0.86
-CURL_LOCK_RELEASE_FRAMES = 10
+CURL_LOCK_ON = 0.72
+CURL_LOCK_OFF = 0.30
+CURL_LOCK_MIN = 0.72
+CURL_LOCK_RELEASE_FRAMES = 8
+
+# 开手限速 / 防误展开：
+# 视觉误识别时，某根已经弯曲的手指会突然被估计为张开。
+# 这里允许“闭合”快速响应，但限制“张开”的速度，从而保留半弯曲，又避免其他手指被误带开。
+CURL_TEMPORAL_FILTER_ENABLE = True
+CURL_CLOSE_ALPHA = 0.70       # 新识别更弯曲时，快速跟随
+CURL_OPEN_ALPHA = 0.45        # 新识别更张开时，慢速释放
+CURL_MAX_OPEN_STEP = 0.045    # 每个控制周期最多张开这么多
+CURL_DROP_GUARD_THRESHOLD = 0.70  # 如果单帧下降超过该值，认为可能是误识别，进一步限制
+
 
 # 防止左右摆动把握拢手指“拉开”
 # 手指越弯曲，splay 权重越小；完全握拢时几乎不叠加左右摆。
 SPLAY_FADE_WITH_CURL = True
-SPLAY_FADE_START = 0.10
+SPLAY_FADE_START = 0.12
 SPLAY_FADE_FULL = 0.62
 
 # 单指独立握拢优先：
 # 只关闭“当前这根弯曲手指”的 splay，不影响其他伸展手指。
 # 例如：食指伸展、中指/无名指握拢时，食指仍然可以左右摆，中指/无名指的 splay 被关闭。
-SPLAY_CUTOFF_CURL = 0.72
+SPLAY_CUTOFF_CURL = 0.74
 
 
 # 对“食指伸展，其他手指握拢”的演示手势特别有用：
@@ -292,6 +308,45 @@ def make_release_count():
     return {name: 0 for name in FINGER_NAMES}
 
 
+def make_filtered_curls():
+    return {name: 0.0 for name in FINGER_NAMES}
+
+
+def apply_curl_temporal_filter(cmd_curls, filtered_curls):
+    """
+    时间滤波：闭合快，张开慢。
+    目的：防止你动食指时，中指/无名指因 MediaPipe 遮挡误差而突然展开。
+    """
+    if not CURL_TEMPORAL_FILTER_ENABLE:
+        return cmd_curls.copy()
+
+    out = {}
+
+    for name in FINGER_NAMES:
+        prev = float(filtered_curls.get(name, 0.0))
+        new = float(cmd_curls.get(name, 0.0))
+
+        if new >= prev:
+            # 用户正在弯曲，快速跟随
+            val = (1.0 - CURL_CLOSE_ALPHA) * prev + CURL_CLOSE_ALPHA * new
+        else:
+            # 用户正在张开或被误识别为张开，慢速释放
+            drop = prev - new
+            alpha = CURL_OPEN_ALPHA
+
+            if drop > CURL_DROP_GUARD_THRESHOLD:
+                alpha *= 0.45
+
+            val = (1.0 - alpha) * prev + alpha * new
+            val = max(val, prev - CURL_MAX_OPEN_STEP)
+
+        val = clamp(val, 0.0, 1.0)
+        filtered_curls[name] = val
+        out[name] = val
+
+    return out
+
+
 def apply_curl_lock(cmd_curls, lock_state, release_count):
     """
     防止已握拢手指因为遮挡/误识别而逐渐张开。
@@ -438,7 +493,7 @@ def draw_status(frame, raw_curls, cmd_curls, raw_splay, cmd_splay, neutral_splay
     y = 30
     cv2.putText(
         frame,
-        "PER-FINGER SPLAY TRIM | n: neutral | r: unlock | q: quit | space: open | c: close",
+        "FINAL STABLE | n: neutral | r: unlock | q: quit | space: open | c: close",
         (10, y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.52,
@@ -485,6 +540,7 @@ def main():
     cmd_splay = make_zero_splay()
     lock_state = make_lock_state()
     release_count = make_release_count()
+    filtered_curls = make_filtered_curls()
 
     target_offsets = np.array(OPEN_OFFSET_DEG, dtype=float)
     current_offsets = np.array(OPEN_OFFSET_DEG, dtype=float)
@@ -496,7 +552,7 @@ def main():
     calibrated = not AUTO_CALIBRATE_NEUTRAL
     auto_samples = []
 
-    print("Camera hand tracking PER-FINGER SPLAY TRIM mode started.")
+    print("Camera hand tracking FINAL STABLE mode started.")
     print("Hold your hand naturally open and press 'n' to set neutral splay.")
     print("If AUTO_CALIBRATE_NEUTRAL=True, keep your hand naturally open for the first second.")
     print("Keys: n=neutral, r=unlock all finger locks, q=quit, space=open, c=close")
@@ -537,7 +593,8 @@ def main():
                     )
 
                     raw_curls, cmd_curls_raw = estimate_finger_curls(hand_lms)
-                    cmd_curls = apply_curl_lock(cmd_curls_raw, lock_state, release_count)
+                    cmd_curls_smooth = apply_curl_temporal_filter(cmd_curls_raw, filtered_curls)
+                    cmd_curls = apply_curl_lock(cmd_curls_smooth, lock_state, release_count)
                     raw_splay = estimate_raw_splay(hand_lms)
 
                     if AUTO_CALIBRATE_NEUTRAL and not calibrated:
@@ -593,10 +650,12 @@ def main():
                     print("Clear curl locks")
                     lock_state = make_lock_state()
                     release_count = make_release_count()
+                    filtered_curls = make_filtered_curls()
                 elif key == ord(" "):
                     print("Manual OPEN")
                     lock_state = make_lock_state()
                     release_count = make_release_count()
+                    filtered_curls = make_filtered_curls()
                     target_offsets = np.array(OPEN_OFFSET_DEG, dtype=float)
                     current_offsets = target_offsets.copy()
                     move_all(c, current_offsets)

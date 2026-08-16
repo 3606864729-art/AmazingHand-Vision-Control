@@ -16,4 +16,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile Python sources
-        run: python -m compileall -q src tools examples experiments
+        run: python -m compileall -q src tools

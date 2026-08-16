@@ -12,7 +12,7 @@
 - 中立位标定与每指侧摆增益/偏置
 - 弯曲锁定和时间滤波，降低遮挡引起的误展开
 - 安全调零、全手开合循环与串口诊断
-- 稳定版、平衡版和逐指偏置实验版三种控制策略
+- 仅保留报告对应的最终稳定控制版本
 - 完整项目报告与关键实验结果
 
 ## 目录
@@ -20,9 +20,6 @@
 ```text
 src/          最终手势跟踪控制脚本
 tools/        安全调零和硬件检查工具
-examples/     预设动作演示
-experiments/  早期实验与单舵机调试脚本
-configs/      上游 Dora 控制管线配置示例
 docs/         项目报告和关键图片
 ```
 
@@ -55,14 +52,14 @@ python -m pip install -r requirements.txt
 ```powershell
 $env:AMAZINGHAND_SERIAL_PORT = "COM11"
 $env:AMAZINGHAND_CAMERA_INDEX = "0"
-python .\src\amazinghand_handtrack_stable.py
+python .\src\AmazingHand_HandTrack_FINAL_STABLE.py
 ```
 
 只测试视觉识别、不连接实体机械手：
 
 ```powershell
 $env:AMAZINGHAND_SIMULATE_ONLY = "1"
-python .\src\amazinghand_handtrack_stable.py
+python .\src\AmazingHand_HandTrack_FINAL_STABLE.py
 ```
 
 运行时按键：
@@ -81,14 +78,12 @@ python .\src\amazinghand_handtrack_stable.py
 2. 设置正确串口，运行 `python .\tools\zero_fine_tune.py`。
 3. 逐项确认零位、最大伸展和最大收缩不会发生机械顶死。
 4. 设置 `AMAZINGHAND_SIMULATE_ONLY=1`，确认摄像头识别和界面正常。
-5. 清除该变量后运行稳定版；自然张手并按 `n` 完成侧摆标定。
+5. 清除该变量后运行最终控制程序；自然张手并按 `n` 完成侧摆标定。
 6. 根据自己的机械手修改脚本顶部的 `MIDDLE_POS_DEG`、角度限位、增益和偏置。
 
-## 控制版本
+## 核心控制程序
 
-- `src/amazinghand_handtrack_stable.py`：推荐版本，包含误展开抑制和时间滤波。
-- `src/amazinghand_handtrack_balanced.py`：响应速度与稳定性的折中版本。
-- `src/amazinghand_handtrack_per_finger_trim.py`：用于逐指侧摆偏置实验。
+`src/AmazingHand_HandTrack_FINAL_STABLE.py` 是项目报告对应的唯一控制版本，也是本项目软件部分的主要独立成果。它包含中立位标定、逐指屈伸与侧摆映射、弯曲锁定、侧摆衰减和时间滤波。
 
 ![手势到舵机映射](docs/figures/tracking_mapping.png)
 
@@ -104,4 +99,3 @@ python .\src\amazinghand_handtrack_stable.py
 ## 许可证与致谢
 
 本项目基于 Pollen Robotics 的 AmazingHand 开源工作。代码分发遵循仓库中的 Apache License 2.0；上游机械设计采用 CC BY 4.0。具体归属说明见 [NOTICE.md](NOTICE.md)。
-
