@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.vscode/
+.idea/
+.tools/
+.DS_Store
+Thumbs.db
+
+# Local hardware and run artifacts
+*.log
+out/
+target/
+build/
+dist/
+*.dora-session.yaml
+
+# Large local media and archives
+*.zip
+*.7z
+*.rar
+*.mp4
+*.MP4
+*.mov
+*.avi
