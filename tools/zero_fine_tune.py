@@ -1,4 +1,4 @@
-# AmazingHand_ZeroFineTune_All_SAFE.py
+# zero_fine_tune.py
 # 适用场景：
 # 1. Windows + Waveshare BUS SERVO ADAPTER (A)
 # 2. Feetech SCS0009，总线舵机 ID 为 1~8
@@ -23,7 +23,7 @@ except ImportError as e:
     raise
 
 
-# ===================== 你主要需要改这里 =====================
+# ===================== 硬件与标定参数 =====================
 
 SERIAL_PORT = os.getenv("AMAZINGHAND_SERIAL_PORT", "COM3")
 BAUDRATE = 1_000_000
@@ -32,12 +32,12 @@ TIMEOUT = 1.0
 SERVO_IDS = [1, 2, 3, 4, 5, 6, 7, 8]
 
 # 每个舵机的机械零位补偿，顺序对应 ID 1~8。
-# 一开始可以全 0；精调后，把你测出来的中位值填到这里。
+# 初始值可设为全 0，精调后记录各舵机中位补偿值。
 # 官方 demo 示例是：[3, 0, -5, -8, -2, 5, -12, 0]
 MIDDLE_POS_DEG = [5, -3, 0, 2, 0, 0, 0, 0]
 
 # 最大伸展/最大收缩角度。
-# 这里沿用 AmazingHand 官方 demo 的基本开合逻辑：
+# 开合方向沿用 AmazingHand 官方 demo 的基础映射：
 # 伸展：每对舵机约 -35 / +35 deg
 # 收缩：每对舵机约 +90 / -90 deg
 OPEN_OFFSET_DEG  = [-35,  35, -35,  35, -35,  35, -35,  35]

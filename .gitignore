@@ -34,3 +34,6 @@ dist/
 *.MP4
 *.mov
 *.avi
+
+# Curated project demonstration
+!docs/demo/*.mp4
