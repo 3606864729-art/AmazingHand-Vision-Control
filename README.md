@@ -6,6 +6,14 @@
 
 ![实体 AmazingHand](docs/figures/assembled_hand.jpg)
 
+## 本项目完成的工作
+
+- 完成 AmazingHand 实体机械手的装配、舵机 ID 配置和机械零位标定。
+- 使用 MediaPipe Hands 提取 21 个手部关键点，计算食指、中指、无名指和拇指的屈伸与侧摆量。
+- 将视觉特征映射为 8 个总线舵机的目标角度，实现摄像头手势到机械手动作的实时控制。
+- 加入中立位自动标定、逐指偏置、弯曲锁定、侧摆衰减和非对称时间滤波，提高遮挡与半弯曲状态下的稳定性。
+- 编写安全调零工具，并记录视觉映射、实物测试和参数调试结果。
+
 ## 主要特性
 
 - 8 自由度实体机械手实时跟踪
@@ -20,7 +28,7 @@
 ```text
 src/          最终手势跟踪控制脚本
 tools/        安全调零和硬件检查工具
-docs/         项目报告和关键图片
+docs/         项目报告、关键图片和演示视频
 ```
 
 ## 环境要求
@@ -52,14 +60,14 @@ python -m pip install -r requirements.txt
 ```powershell
 $env:AMAZINGHAND_SERIAL_PORT = "COM11"
 $env:AMAZINGHAND_CAMERA_INDEX = "0"
-python .\src\AmazingHand_HandTrack_FINAL_STABLE.py
+python .\src\hand_tracking_control.py
 ```
 
 只测试视觉识别、不连接实体机械手：
 
 ```powershell
 $env:AMAZINGHAND_SIMULATE_ONLY = "1"
-python .\src\AmazingHand_HandTrack_FINAL_STABLE.py
+python .\src\hand_tracking_control.py
 ```
 
 运行时按键：
@@ -83,9 +91,13 @@ python .\src\AmazingHand_HandTrack_FINAL_STABLE.py
 
 ## 核心控制程序
 
-`src/AmazingHand_HandTrack_FINAL_STABLE.py` 是项目报告对应的唯一控制版本，也是本项目软件部分的主要独立成果。它包含中立位标定、逐指屈伸与侧摆映射、弯曲锁定、侧摆衰减和时间滤波。
+`src/hand_tracking_control.py` 对应项目报告中的最终控制版本。程序包含中立位标定、逐指屈伸与侧摆映射、弯曲锁定、侧摆衰减和时间滤波。
 
 ![手势到舵机映射](docs/figures/tracking_mapping.png)
+
+## 演示视频
+
+[视觉识别与手势映射演示](docs/demo/vision_gesture_mapping.mp4)：同步展示 MediaPipe 手部关键点、摄像头手势和 MuJoCo 机械手响应。
 
 ## 安全提示
 

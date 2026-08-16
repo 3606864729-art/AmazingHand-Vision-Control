@@ -1,5 +1,5 @@
-# AmazingHand_HandTrack_FINAL_STABLE.py
-# AmazingHand hand tracking：左右摆动标定增强版（已合并你的 TUNED_THUMB_FIX 参数，并加入半弯曲友好曲线、单指 splay 衰减、左右偏置微调、开手限速防误展开）
+# hand_tracking_control.py
+# AmazingHand 基于视觉的手势跟踪与舵机控制程序。
 #
 # 核心改进：
 # 1. 四指左右摆动不再用 fingertip - MCP，而是用 MCP -> PIP 的近节指骨方向，减少屈伸污染。
@@ -8,7 +8,7 @@
 # 4. 终端持续输出 raw_splay / cmd_splay，便于判断到底是识别问题还是舵机映射问题。
 #
 # 运行：
-#   python src/AmazingHand_HandTrack_FINAL_STABLE.py
+#   python src/hand_tracking_control.py
 #
 # 操作：
 #   n     标定当前手势为左右摆动中立位
@@ -30,7 +30,7 @@ import numpy as np
 import mediapipe as mp
 
 
-# ===================== 你主要需要改这里 =====================
+# ===================== 硬件与控制参数 =====================
 
 SIMULATE_ONLY = os.getenv("AMAZINGHAND_SIMULATE_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
@@ -40,7 +40,7 @@ TIMEOUT = 1.0
 
 SERVO_IDS = [1, 2, 3, 4, 5, 6, 7, 8]
 
-# 改成你的真实调零值。
+# 舵机机械零位补偿，顺序对应 ID 1~8。
 # 官方 demo 示例：[3, 0, -5, -8, -2, 5, -12, 0]
 MIDDLE_POS_DEG = [-5, 8, 0, 0, 5, 0, 3, 0]
 
@@ -55,12 +55,12 @@ SPLAY_ENABLE = True
 # 如果左右摆幅小，优先调大 SPLAY_GAIN；如果舵机幅度小，再调大 SPLAY_MAX_DEG。
 SPLAY_MAX_DEG = [80, 80, 80, 80]
 SPLAY_GAIN    = [3.2, 3.0, 3.2, 9.0]  # 单指独立衰减：伸展手指保留摆动，弯曲手指削弱摆动
-SPLAY_SIGN    = [-1, -1, -1,  -1]   # 某根方向反了，就把对应值改成 -1
+SPLAY_SIGN    = [-1, -1, -1,  -1]   # 对应手指方向相反时切换该项符号
 
 # 每根手指左右摆动零点微调，单位：度。
 # 顺序：index, middle, ring, thumb
-# 你现在的问题是中指偏向食指，所以先给 middle 一个 +8° 偏置。
-# 如果更偏，就改成 [0, -8, 0, 0]。
+# 当前样机的中指使用 +10° 偏置补偿固定侧向误差。
+# 偏置方向由舵机安装方向和 SPLAY_SIGN 共同决定。
 SPLAY_TRIM_DEG = [0, 10, 0, 0]
 
 # 安全限位
@@ -79,11 +79,7 @@ SMOOTHING_ALPHA = 0.25
 SPEED = 4
 COMMAND_GAP = 0.006
 
-# 半弯曲友好参数说明：
-# - CURL_FULL 提高到 0.82：需要更明显弯曲才会满闭合；
-# - CURL_GAMMA 改到 1.10：曲线更线性，半弯曲更容易停住；
-# - CURL_LOCK_ON 提高到 0.82：避免半弯曲时过早锁死；
-# - SMOOTHING_ALPHA 降到 0.25：减少跳变。
+# 屈伸映射与滤波参数用于保留中间姿态，并抑制遮挡引起的突然展开。
 
 # 弯曲灵敏度
 CURL_START = 0.12
@@ -114,7 +110,7 @@ CURL_LOCK_RELEASE_FRAMES = 8
 
 # 开手限速 / 防误展开：
 # 视觉误识别时，某根已经弯曲的手指会突然被估计为张开。
-# 这里允许“闭合”快速响应，但限制“张开”的速度，从而保留半弯曲，又避免其他手指被误带开。
+# 闭合采用快速响应，张开采用限速释放，以提高中间姿态稳定性。
 CURL_TEMPORAL_FILTER_ENABLE = True
 CURL_CLOSE_ALPHA = 0.70       # 新识别更弯曲时，快速跟随
 CURL_OPEN_ALPHA = 0.45        # 新识别更张开时，慢速释放
@@ -138,7 +134,7 @@ SPLAY_CUTOFF_CURL = 0.74
 # index 可以保持左右摆，其余握拢手指不被 splay 干扰。
 
 # 是否在识别到手后的前若干帧自动标定中立位。
-# 推荐 True：程序启动后保持手自然张开 1 秒左右，会自动标定。
+# 启用后，程序启动阶段采集自然张手姿态约 1 秒并完成自动标定。
 AUTO_CALIBRATE_NEUTRAL = True
 AUTO_CALIBRATE_FRAMES = 25
 
@@ -289,8 +285,8 @@ def estimate_raw_splay(hand_landmarks):
     root_val = float(np.dot(v_root, palm_axis)) if v_root is not None else 0.0
     tip_val = float(np.dot(v_tip, palm_axis)) if v_tip is not None else 0.0
 
-    # tip_val 能更明显地反映大幅度摆动，但也会受屈伸影响；
-    # root_val 更纯，但幅度小。这里做折中。
+    # tip_val 对大幅度摆动更敏感，root_val 受屈伸影响较小；
+    # 加权融合兼顾测量幅度与稳定性。
     raw["thumb"] = 0.45 * root_val + 0.55 * tip_val
 
     return raw
@@ -315,7 +311,7 @@ def make_filtered_curls():
 def apply_curl_temporal_filter(cmd_curls, filtered_curls):
     """
     时间滤波：闭合快，张开慢。
-    目的：防止你动食指时，中指/无名指因 MediaPipe 遮挡误差而突然展开。
+    用于抑制单指运动时其他手指因 MediaPipe 遮挡误差而突然展开。
     """
     if not CURL_TEMPORAL_FILTER_ENABLE:
         return cmd_curls.copy()
@@ -327,10 +323,10 @@ def apply_curl_temporal_filter(cmd_curls, filtered_curls):
         new = float(cmd_curls.get(name, 0.0))
 
         if new >= prev:
-            # 用户正在弯曲，快速跟随
+            # 屈曲增加时快速跟随
             val = (1.0 - CURL_CLOSE_ALPHA) * prev + CURL_CLOSE_ALPHA * new
         else:
-            # 用户正在张开或被误识别为张开，慢速释放
+            # 伸展增加或发生误识别时慢速释放
             drop = prev - new
             alpha = CURL_OPEN_ALPHA
 
@@ -361,7 +357,7 @@ def apply_curl_lock(cmd_curls, lock_state, release_count):
         curl = float(cmd_curls.get(name, 0.0))
 
         if lock_state[name]:
-            # 只有连续多帧明显低于阈值，才认为用户真的想张开
+            # 连续多帧低于阈值后解除闭合锁定
             if curl < CURL_LOCK_OFF:
                 release_count[name] += 1
             else:
